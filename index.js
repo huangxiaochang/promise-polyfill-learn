@@ -1,4 +1,5 @@
 import promiseFinally from './finally';
+// const promiseFinally = require("./finally.js")
 
 // Store setTimeout reference so promise-polyfill will be unaffected by
 // other code modifying setTimeout (like sinon.useFakeTimers())
@@ -176,11 +177,13 @@ function Handler(onFulfilled, onRejected, promise) {
 function doResolve(fn, self) {
   // self， 调用Promise的this
   
-  // 用来保证一个promise实例，同一时刻只能进行一次resolve或者reject
+  // 用来保证一个promise实例，同一时刻只能进行一次resolve或者reject, 因为可能
+  // 开发者会在fn中再次调用fn
   var done = false;
   // 同步执行cb, 传进resolve， reject函数
   try {
     fn(
+      // 为了确保内部的resolve和reject函数的this为promise，传进一个包裹函数
       function(value) {
         if (done) return;
         done = true;
@@ -219,10 +222,12 @@ Promise.prototype.then = function(onFulfilled, onRejected) {
 // finally的回调函数
 Promise.prototype['finally'] = promiseFinally;
 
-// @params {arr} array <promise|object|function>
+// @params {arr} arrayLike <promise|object|function>
 Promise.all = function(arr) {
   // Promise.all返回的是一个promise实例对象
   return new Promise(function(resolve, reject) {
+
+    // 参数只能是具有Iterator接口的对象
     if (!isArray(arr)) {
       return reject(new TypeError('Promise.all accepts an array'));
     }
@@ -241,18 +246,23 @@ Promise.all = function(arr) {
           if (typeof then === 'function') {
             then.call(
               val,
-              // 递归处理，因为可能在then中resolve的值还是一个then对象
+              // 执行then添加回调，传进Promise.all的reject，这样，单某个promise变成reject后，
+              // Promise.all的状态就会变成reject。然后对于pormise变成resolve时，再对resolve的值
+              // 进行循环处理，如果是一般的值，则等待resolve的个数减1，直到所有的promise变成
+              // resolve，Promise.all的状态才变成resolve
               function(val) {
                 res(i, val);
               },
+              // 某一个promise进行reject时，Promise.all的状态会立即变成reject
               reject
             );
             return;
           }
         }
-
+        // 这里的val,对于一般值来说，就是原值，对于promise对象或者thenable对象来说，是resolve后的值
         args[i] = val;
         if (--remaining === 0) {
+          // 当所有的promise变成resolve时， Promise.all的状态才改变成resolve
           resolve(args);
         }
       } catch (ex) {
@@ -321,4 +331,18 @@ Promise._unhandledRejectionFn = function _unhandledRejectionFn(err) {
   }
 };
 
-export default Promise;
+// 不管fn是否有异步操作，都具有统一的api,即同步发生的错误，也可以通过catch获取，
+// 通过then来获取resolve的值
+Promise.try = function (fn) {
+  return new Promise(function(resolve, reject) {
+    // try {
+    //   resolve(fn())
+    // } catch (e) {
+    //   reject(e)
+    // }
+    resolve(fn())
+  })
+}
+
+// export default Promise;
+module.exports = Promise
